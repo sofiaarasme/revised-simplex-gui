@@ -1,143 +1,121 @@
 import tkinter as tk
-from tkinter import messagebox
-
+from tkinter import messagebox, ttk
 from src.core.solver import RevisedSimplexSolver
 
 MAX_VARS = 50
 MAX_CONS = 50
+SENSES = ['≤', '=', '≥']
 
 class SimplexGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Revised Simplex Solver")
-        self.configure(bg="#00FFFF")  # fondo aqua
+        self.configure(bg="#FFFFFF")  # fondo blanco
         self.geometry("900x700")
+        self._style_widgets()
         self._build_initial_frame()
 
+    def _style_widgets(self):
+        style = ttk.Style(self)
+        style.theme_use('default')
+        style.configure('TLabel', background='#FFFFFF', foreground='#000000', font=('Segoe UI', 11))
+        style.configure('TEntry', font=('Segoe UI', 11))
+        style.configure('TButton', background='#007ACC', foreground='#FFFFFF', font=('Segoe UI Semibold', 11), borderwidth=0)
+        style.map('TButton', background=[('active', '#005A9E')])
+        style.configure('TOptionMenu', background='#FFFFFF', foreground='#000000', font=('Segoe UI', 11))
+
     def _build_initial_frame(self):
-        # Frame inicial para tamaño de problema
-        self.initial_frame = tk.Frame(self, bg="#00FF00", padx=20, pady=20)  # verde
-        self.initial_frame.pack(pady=30)
+        frame = ttk.Frame(self, padding=20)
+        frame.pack(pady=50)
 
-        tk.Label(self.initial_frame, text="Número de variables:", bg="#00FF00", fg="blue").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(frame, text="Número de variables:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.var_count = tk.IntVar(value=2)
-        tk.Entry(self.initial_frame, textvariable=self.var_count, width=5).grid(row=0, column=1)
+        ttk.Entry(frame, textvariable=self.var_count, width=7).grid(row=0, column=1, padx=5, pady=5)
 
-        tk.Label(self.initial_frame, text="Número de restricciones:", bg="#00FF00", fg="blue").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(frame, text="Número de restricciones:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.cons_count = tk.IntVar(value=2)
-        tk.Entry(self.initial_frame, textvariable=self.cons_count, width=5).grid(row=1, column=1)
+        ttk.Entry(frame, textvariable=self.cons_count, width=7).grid(row=1, column=1, padx=5, pady=5)
 
-        tk.Button(
-            self.initial_frame,
+        ttk.Button(
+            frame,
             text="Generar formulario",
-            command=self._on_generate,
-            bg="#0000FF", fg="white",
-            activebackground="#0000AA"
-        ).grid(row=2, column=0, columnspan=2, pady=10)
+            command=self._on_generate
+        ).grid(row=2, column=0, columnspan=2, pady=15)
 
     def _on_generate(self):
-        n = self.var_count.get()
-        m = self.cons_count.get()
+        n, m = self.var_count.get(), self.cons_count.get()
         if not (1 <= n <= MAX_VARS) or not (1 <= m <= MAX_CONS):
             messagebox.showerror(
                 "Error de entrada",
-                f"Variables 1-{MAX_VARS}, restricciones 1-{MAX_CONS}."
+                f"Ingresa entre 1 y {MAX_VARS} variables, y 1 y {MAX_CONS} restricciones."
             )
             return
-        self.initial_frame.destroy()
+        for widget in self.winfo_children():
+            widget.destroy()
+        self._style_widgets()
         self._build_form(n, m)
 
     def _build_form(self, n, m):
-        # Frame para formulario
-        self.form_frame = tk.Frame(self, bg="#00FF00", padx=10, pady=10)
-        self.form_frame.pack(fill=tk.BOTH, expand=True)
+        container = ttk.Frame(self, padding=10)
+        container.pack(fill=tk.BOTH, expand=True)
 
-        # Función objetivo
-        tk.Label(self.form_frame, text="Función objetivo (max):", bg="#00FF00", fg="blue").grid(row=0, column=0, columnspan=n, sticky=tk.W)
+        # Encabezado función objetivo
+        ttk.Label(container, text="Función objetivo (Max):", font=('Segoe UI Semibold', 13)).grid(row=0, column=0, columnspan=n+2, pady=(10,5), sticky=tk.W)
         self.obj_entries = []
         for j in range(n):
-            e = tk.Entry(self.form_frame, width=7)
-            e.grid(row=1, column=j)
+            e = ttk.Entry(container, width=8)
             e.insert(0, "0")
+            e.grid(row=1, column=j, padx=4, pady=4)
             self.obj_entries.append(e)
-        tk.Label(self.form_frame, text="+").grid(row=1, column=n)
-        tk.Label(self.form_frame, text="Z", bg="#00FF00").grid(row=1, column=n+1)
+            if j < n-1:
+                ttk.Label(container, text="+").grid(row=1, column=j+ n, padx=2)
 
-        # Restricciones
-        tk.Label(self.form_frame, text="Restricciones:", bg="#00FF00", fg="blue").grid(row=2, column=0, pady=(20,5), sticky=tk.W)
-        self.A_entries = []
-        self.b_entries = []
-        self.sense_vars = []
-        senses = ['≤', '=', '≥']
+        # Encabezado restricciones
+        ttk.Label(container, text="Restricciones:", font=('Segoe UI Semibold', 13)).grid(row=2, column=0, columnspan=n+2, pady=(20,5), sticky=tk.W)
+        self.A_entries, self.b_entries, self.sense_vars = [], [], []
         for i in range(m):
-            row = []
+            row_entries = []
             for j in range(n):
-                e = tk.Entry(self.form_frame, width=7)
-                e.grid(row=3+i, column=j)
+                e = ttk.Entry(container, width=8)
                 e.insert(0, "0")
-                row.append(e)
-            self.A_entries.append(row)
-            var = tk.StringVar(value=senses[0])
-            tk.OptionMenu(self.form_frame, var, *senses).grid(row=3+i, column=n)
-            self.sense_vars.append(var)
-            be = tk.Entry(self.form_frame, width=7)
-            be.grid(row=3+i, column=n+1)
+                e.grid(row=3+i, column=j, padx=4, pady=4)
+                row_entries.append(e)
+            self.A_entries.append(row_entries)
+
+            sense_var = tk.StringVar(value=SENSES[0])
+            ttk.OptionMenu(container, sense_var, SENSES[0], *SENSES).grid(row=3+i, column=n, padx=4)
+            self.sense_vars.append(sense_var)
+
+            be = ttk.Entry(container, width=8)
             be.insert(0, "0")
+            be.grid(row=3+i, column=n+1, padx=4)
             self.b_entries.append(be)
 
         # Botón resolver
-        tk.Button(
+        ttk.Button(
             self,
             text="Resolver",
-            command=self._on_solve,
-            bg="#0000FF", fg="white",
-            activebackground="#0000AA"
+            command=self._on_solve
         ).pack(pady=20)
 
     def _on_solve(self):
         try:
-            # Validar entradas de A
-            A = []
-            for row in self.A_entries:
-                A_row = []
-                for e in row:
-                    value = e.get()
-                    if not value.isdigit():
-                        raise ValueError("Las entradas de A deben ser números enteros.")
-                    A_row.append(int(value))
-                A.append(A_row)
-
-            # Validar entradas de b
-            b = []
-            for e in self.b_entries:
-                value = e.get()
-                if not value.isdigit():
-                    raise ValueError("Las entradas de b deben ser números enteros.")
-                b.append(int(value))
-
-            # Validar entradas de c
-            c = []
-            for e in self.obj_entries:
-                value = e.get()
-                if not value.isdigit():
-                    raise ValueError("Las entradas de la función objetivo deben ser números enteros.")
-                c.append(int(value))
-
-            # Obtener los sentidos
+            A = [[int(e.get()) for e in row] for row in self.A_entries]
+            b = [int(e.get()) for e in self.b_entries]
+            c = [int(e.get()) for e in self.obj_entries]
             sense = [sv.get() for sv in self.sense_vars]
 
-            # Resolver el problema
             solver = RevisedSimplexSolver(A, b, c, sense)
             solution = solver.solve()
             if solution is None:
                 messagebox.showinfo("Resultado", "No factible o no acotado.")
             else:
-                result_str = "Solución óptima:\n"
-                for idx, val in enumerate(solution):
-                    result_str += f"x{idx+1} = {val:.2f}\n"
-                messagebox.showinfo("Resultado", result_str)
-        except ValueError as e:
-            messagebox.showerror("Error", str(e))
+                res = "Solución óptima:\n"
+                for i, val in enumerate(solution, start=1):
+                    res += f"x{i} = {val:.2f}\n"
+                messagebox.showinfo("Resultado", res)
+        except ValueError as ex:
+            messagebox.showerror("Entrada inválida", str(ex))
 
 if __name__ == '__main__':
     app = SimplexGUI()
