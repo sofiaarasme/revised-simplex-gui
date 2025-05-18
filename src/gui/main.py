@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from src.core.solver import RevisedSimplexSolver
 
-MAX_VARS = 50
+MAX_VARS = 20
 MAX_CONS = 50
 SENSES = ['≤', '=', '≥']
 
@@ -10,37 +10,48 @@ class SimplexGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Revised Simplex Solver")
-        self.configure(bg="#FFFFFF")  # fondo blanco
+        self.configure(bg="#F5F5F5")
         self.geometry("900x700")
         self._style_widgets()
         self._build_initial_frame()
-
+        
     def _style_widgets(self):
         style = ttk.Style(self)
         style.theme_use('default')
-        style.configure('TLabel', background='#FFFFFF', foreground='#000000', font=('Segoe UI', 11))
-        style.configure('TEntry', font=('Segoe UI', 11))
-        style.configure('TButton', background='#007ACC', foreground='#FFFFFF', font=('Segoe UI Semibold', 11), borderwidth=0)
-        style.map('TButton', background=[('active', '#005A9E')])
-        style.configure('TOptionMenu', background='#FFFFFF', foreground='#000000', font=('Segoe UI', 11))
+
+        # Estilo general
+        style.configure('TLabel', background='#F5F5F5', foreground='#000000', font=('Segoe UI', 12))
+        style.configure('TEntry', font=('Segoe UI', 12))
+        
+        # Estilo de botones
+        style.configure('Primary.TButton', font=('Segoe UI Semibold', 12), background='#005A9E', foreground='#FFFFFF', borderwidth=1, padding=5)
+        style.map('Primary.TButton', background=[('active', '#004080')])
+
+        style.configure('Secondary.TButton', font=('Segoe UI Semibold', 12), background='#28A745', foreground='#FFFFFF', borderwidth=1, padding=5)
+        style.map('Secondary.TButton', background=[('active', '#218838')])
 
     def _build_initial_frame(self):
         frame = ttk.Frame(self, padding=20)
         frame.pack(pady=50)
 
-        ttk.Label(frame, text="Número de variables:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(frame, text="Cantidad de Variables:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.var_count = tk.IntVar(value=2)
-        ttk.Entry(frame, textvariable=self.var_count, width=7).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Spinbox(frame, from_=1, to=MAX_VARS, textvariable=self.var_count, width=10).grid(row=0, column=1, padx=5, pady=5)
 
-        ttk.Label(frame, text="Número de restricciones:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(frame, text="Cantidad de Restricciones:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.cons_count = tk.IntVar(value=2)
-        ttk.Entry(frame, textvariable=self.cons_count, width=7).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Spinbox(frame, from_=1, to=MAX_CONS, textvariable=self.cons_count, width=10).grid(row=1, column=1, padx=5, pady=5)
 
-        ttk.Button(
-            frame,
-            text="Generar formulario",
-            command=self._on_generate
-        ).grid(row=2, column=0, columnspan=2, pady=15)
+        button_frame = ttk.Frame(frame)
+        button_frame.grid(row=2, column=0, columnspan=2, pady=15)
+
+        ttk.Button(button_frame, text="Generar Modelo", style='Primary.TButton', command=self._on_generate).grid(row=0, column=0, padx=10)
+        ttk.Button(button_frame, text="Limpiar", style='Secondary.TButton', command=self._clear_form).grid(row=0, column=1, padx=10)
+
+    def _clear_form(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+        self._build_initial_frame()
 
     def _on_generate(self):
         n, m = self.var_count.get(), self.cons_count.get()
@@ -59,44 +70,58 @@ class SimplexGUI(tk.Tk):
         container = ttk.Frame(self, padding=10)
         container.pack(fill=tk.BOTH, expand=True)
 
+        # Selector de objetivo
+        objective_frame = ttk.Frame(container)
+        objective_frame.pack(pady=10, fill=tk.X)
+        ttk.Label(objective_frame, text="Objetivo:").pack(side=tk.LEFT, padx=5)
+        self.objective = tk.StringVar(value="Maximizar")
+        ttk.OptionMenu(objective_frame, self.objective, "Maximizar", "Maximizar", "Minimizar").pack(side=tk.LEFT)
+
         # Encabezado función objetivo
-        ttk.Label(container, text="Función objetivo (Max):", font=('Segoe UI Semibold', 13)).grid(row=0, column=0, columnspan=n+2, pady=(10,5), sticky=tk.W)
+        ttk.Label(container, text="Función Objetivo:", font=('Segoe UI Semibold', 14)).pack(anchor=tk.W, pady=(10, 5))
+        func_frame = ttk.Frame(container)
+        func_frame.pack(anchor=tk.W, pady=5)
         self.obj_entries = []
         for j in range(n):
-            e = ttk.Entry(container, width=8)
+            e = ttk.Entry(func_frame, width=5)
             e.insert(0, "0")
-            e.grid(row=1, column=j, padx=4, pady=4)
+            e.pack(side=tk.LEFT, padx=2)
             self.obj_entries.append(e)
-            if j < n-1:
-                ttk.Label(container, text="+").grid(row=1, column=j+ n, padx=2)
+            ttk.Label(func_frame, text=f"X{j+1}").pack(side=tk.LEFT, padx=2)
+            if j < n - 1:
+                ttk.Label(func_frame, text="+").pack(side=tk.LEFT, padx=2)
 
         # Encabezado restricciones
-        ttk.Label(container, text="Restricciones:", font=('Segoe UI Semibold', 13)).grid(row=2, column=0, columnspan=n+2, pady=(20,5), sticky=tk.W)
+        ttk.Label(container, text="Restricciones:", font=('Segoe UI Semibold', 14)).pack(anchor=tk.W, pady=(20, 5))
         self.A_entries, self.b_entries, self.sense_vars = [], [], []
         for i in range(m):
+            row_frame = ttk.Frame(container)
+            row_frame.pack(anchor=tk.W, pady=5)
             row_entries = []
             for j in range(n):
-                e = ttk.Entry(container, width=8)
+                e = ttk.Entry(row_frame, width=5)
                 e.insert(0, "0")
-                e.grid(row=3+i, column=j, padx=4, pady=4)
+                e.pack(side=tk.LEFT, padx=2)
                 row_entries.append(e)
+                ttk.Label(row_frame, text=f"X{j+1}").pack(side=tk.LEFT, padx=2)
+                if j < n - 1:
+                    ttk.Label(row_frame, text="+").pack(side=tk.LEFT, padx=2)
             self.A_entries.append(row_entries)
 
             sense_var = tk.StringVar(value=SENSES[0])
-            ttk.OptionMenu(container, sense_var, SENSES[0], *SENSES).grid(row=3+i, column=n, padx=4)
+            ttk.OptionMenu(row_frame, sense_var, SENSES[0], *SENSES).pack(side=tk.LEFT, padx=2)
             self.sense_vars.append(sense_var)
 
-            be = ttk.Entry(container, width=8)
+            be = ttk.Entry(row_frame, width=5)
             be.insert(0, "0")
-            be.grid(row=3+i, column=n+1, padx=4)
+            be.pack(side=tk.LEFT, padx=2)
             self.b_entries.append(be)
 
-        # Botón resolver
-        ttk.Button(
-            self,
-            text="Resolver",
-            command=self._on_solve
-        ).pack(pady=20)
+        # Botones de acción
+        button_frame = ttk.Frame(container)
+        button_frame.pack(pady=20)
+        ttk.Button(button_frame, text="Resolver", style='Primary.TButton', command=self._on_solve).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Limpiar", style='Secondary.TButton', command=self._clear_form).pack(side=tk.LEFT, padx=10)
 
     def _on_solve(self):
         try:
@@ -120,3 +145,4 @@ class SimplexGUI(tk.Tk):
 if __name__ == '__main__':
     app = SimplexGUI()
     app.mainloop()
+    
