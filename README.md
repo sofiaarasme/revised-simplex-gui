@@ -11,4 +11,4 @@ Interfaz gráfica con Tkinter para resolver problemas de programación lineal po
 1. Crear entorno virtual: `python -m venv venv`
 2. Activar entorno: `source venv/bin/activate` (Mac/Linux) o `venv\Scripts\activate` (Windows)
 3. Instalar dependencias: `pip install -r requirements.txt`
-4. Ejecutar: `python src/gui/main.py`
+4. Ejecutar: `python -m src.gui.main`
