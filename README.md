@@ -4,7 +4,7 @@ Interfaz gráfica con Tkinter para resolver problemas de programación lineal po
 
 ## Límite de tamaño
 
-- Máximo 50 variables y 50 restricciones.
+- Máximo 20 variables y 50 restricciones.
 
 ## Cómo empezar
 
