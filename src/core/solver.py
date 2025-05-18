@@ -1,302 +1,133 @@
 import numpy as np
+import logging
+
+# Configurar logging a archivo 'simplex.log'
+logging.basicConfig(
+    filename='simplex.log',
+    filemode='w',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 class RevisedSimplexSolver:
     def __init__(self, A, b, c, sense):
-        """
-        A: matriz de coeficientes (m x n)
-        b: vector de términos independientes (m,)
-        c: vector de costos (n,)
-        sense: lista con los sentidos de las restricciones ('≤', '=', '≥')
-        """
         self.A = np.array(A, dtype=float)
         self.b = np.array(b, dtype=float)
-        self.c = np.array(c, dtype=float)
+        self.c_original = np.array(c, dtype=float)
         self.sense = sense
-
         self.m, self.n = self.A.shape
-
-        # Variables totales incluyendo artificiales
+        logging.debug(f"Init A={self.A.tolist()}, b={self.b.tolist()}, c={self.c_original.tolist()}, sense={sense}")
         self._add_slack_and_artificial_vars()
 
     def _add_slack_and_artificial_vars(self):
-        """
-        Modifica A, c, y crea variables slack y artificiales para manejar sentidos.
-        """
+        m, n = self.m, self.n
         A = self.A
-        b = self.b
-        sense = self.sense
-
-        slack_vars = 0
-        artificial_vars = 0
-
-        rows = []
-        for i in range(self.m):
-            row = list(A[i])
-            if sense[i] == '≤':
-                # Añadir variable slack positiva
-                slack_col = [0]*self.m
-                slack_col[i] = 1
-                row += slack_col
-                # No artificial
-                artificial_col = [0]*self.m
-                row += artificial_col
-                slack_vars += 1
-            elif sense[i] == '=':
-                # No slack, solo artificial
-                slack_col = [0]*self.m
-                row += slack_col
-                artificial_col = [0]*self.m
-                artificial_col[i] = 1
-                row += artificial_col
-                artificial_vars += 1
-            elif sense[i] == '≥':
-                # Slack negativa + artificial positiva
-                slack_col = [0]*self.m
-                slack_col[i] = -1
-                row += slack_col
-                artificial_col = [0]*self.m
-                artificial_col[i] = 1
-                row += artificial_col
-                slack_vars += 1
-                artificial_vars += 1
+        slack_cols = []
+        art_cols = []
+        for i, s in enumerate(self.sense):
+            e = np.zeros(m)
+            e[i] = 1
+            if s == '≤':
+                slack_cols.append(e)
+            elif s == '≥':
+                slack_cols.append(-e)
+                art_cols.append(e)
+            elif s == '=':
+                art_cols.append(e)
             else:
-                raise ValueError("Sentido desconocido: debe ser '≤', '=', '≥'")
-            rows.append(row)
+                raise ValueError("Sentido desconocido: debe ser '≤', '≥' o '='")
+        S = np.column_stack(slack_cols) if slack_cols else np.zeros((m,0))
+        Ar = np.column_stack(art_cols) if art_cols else np.zeros((m,0))
+        A_ext = np.hstack([A, S, Ar])
+        total = A_ext.shape[1]
+        # Costos fase1: minimizar suma artificiales
+        c1 = np.zeros(total)
+        for j in range(n + S.shape[1], total):
+            c1[j] = 1
+        # Costos fase2: original + ceros slack + ceros artificial
+        c2 = np.concatenate([self.c_original, np.zeros(S.shape[1] + Ar.shape[1])])
+        # Base inicial: índices de slack y artificiales
+        B = list(range(n, n + S.shape[1] + Ar.shape[1]))
+        self.A = A_ext; self.b = self.b
+        self.c1 = c1; self.c2 = c2
+        self.n_total = total
+        self.n_slack = S.shape[1]; self.n_art = Ar.shape[1]
+        self.art_idx = list(range(n + self.n_slack, total))
+        self.B = B
+        logging.debug(f"A_ext={self.A.tolist()}")
+        logging.debug(f"c1={self.c1.tolist()}, c2={self.c2.tolist()}")
+        logging.debug(f"B init={self.B}")
 
-        # Convertir lista a numpy array
-        A_mod = np.array(rows, dtype=float)
-
-        # Ajustar c para nuevas variables (slack=0, artificial=1 en fase1)
-        c_mod = np.zeros(A_mod.shape[1])
-        # Artificiales al final de las columnas, con coef 1 para fase 1
-        # Contar cuántas variables originales + slack y artificial
-        n_original = self.n
-        n_slack = slack_vars * self.m  # Este cálculo está sobredimensionado, se corrige abajo
-        n_slack = slack_vars  # Solo un slack por restricción
-        n_artificial = artificial_vars
-
-        # Coeficientes originales + slack = 0 en fase 1
-        # Artificiales = 1 en fase 1 para minimizar suma
-        start_artificial = n_original + n_slack
-        c_mod[start_artificial:start_artificial + n_artificial] = 1
-
-        self.A = A_mod
-        self.c = c_mod
-        self.b = b
-        self.n_total = A_mod.shape[1]
-
-        # Guardar índices de variables artificiales para uso posterior
-        self.artificial_indices = list(range(start_artificial, start_artificial + n_artificial))
-        self.slack_indices = list(range(n_original, n_original + n_slack))
-
-        # Base inicial: variables slack y artificiales
-        self.B_indices = self.slack_indices + self.artificial_indices
-
-    def _phase_one(self):
-        """
-        Fase 1: encontrar solución básica factible minimizando suma variables artificiales.
-        """
-        max_iterations = 1000
-        iteration = 0
-
-        A = self.A
-        b = self.b
-        c = self.c
-        B_indices = self.B_indices.copy()
-
-        while iteration < max_iterations:
-            iteration += 1
-
-            B = A[:, B_indices]
-            N_indices = [j for j in range(self.n_total) if j not in B_indices]
-            N = A[:, N_indices]
-
+    def _phase(self, c, maximize=False):
+        A, b = self.A, self.b
+        B = self.B.copy()
+        for it in range(1000):
+            Bm = A[:, B]
             try:
-                B_inv = np.linalg.inv(B)
+                Binv = np.linalg.inv(Bm)
             except np.linalg.LinAlgError:
-                print("Base singular en fase 1")
-                return False
-
-            x_B = B_inv @ b
-            c_B = c[B_indices]
-            c_N = c[N_indices]
-
-            lambda_ = c_B @ B_inv
-            reduced_costs = c_N - lambda_ @ N
-
-            if all(rc >= -1e-10 for rc in reduced_costs):
-                # Condición de optimalidad fase 1
-                # Revisar si suma artificiales en base es cero
-                sum_artificial = 0
-                for i, idx in enumerate(B_indices):
-                    if idx in self.artificial_indices:
-                        if x_B[i] > 1e-8:
-                            print("Solución infactible (artificiales positivas).")
-                            return False
-                        else:
-                            sum_artificial += x_B[i]
-                if sum_artificial > 1e-8:
-                    print("Solución infactible (artificiales positivas).")
-                    return False
-                # Solución básica factible encontrada
-                self.B_indices = B_indices
-                return True
-
-            # Elegir variable entrante
-            entering_candidates = [(idx, rc) for idx, rc in enumerate(reduced_costs) if rc < -1e-10]
-            entering_idx, _ = min(entering_candidates, key=lambda x: x[1])
-            entering_var = N_indices[entering_idx]
-
-            A_j = A[:, entering_var]
-            d = B_inv @ A_j
-
-            # Regla de razón mínima
-            ratios = []
-            for i in range(len(d)):
-                if d[i] > 1e-10:
-                    ratios.append(x_B[i] / d[i])
-                else:
-                    ratios.append(np.inf)
-
-            min_ratio = min(ratios)
-            if min_ratio == np.inf:
-                print("Problema no acotado en fase 1")
-                return False
-
-            leaving_idx = ratios.index(min_ratio)
-            leaving_var = B_indices[leaving_idx]
-
-            # Actualizar base
-            B_indices[leaving_idx] = entering_var
-
-        print("Máximo de iteraciones alcanzado en fase 1")
-        return False
-
-    def _remove_artificial_vars(self):
-        """
-        Elimina variables artificiales de la base y del problema.
-        """
-        artificial_set = set(self.artificial_indices)
-        # Quitar artificiales de la base
-        new_B_indices = [idx for idx in self.B_indices if idx not in artificial_set]
-
-        # Intentar reemplazar si base quedó incompleta
-        candidates = [j for j in range(self.n) if j not in new_B_indices]
-        while len(new_B_indices) < self.m:
-            for cidx in candidates:
-                trial_base = new_B_indices + [cidx]
-                B = self.A[:, trial_base]
-                try:
-                    np.linalg.inv(B)
-                    new_B_indices.append(cidx)
-                    candidates.remove(cidx)
-                    break
-                except np.linalg.LinAlgError:
-                    continue
+                logging.error("Base singular (phase)")
+                return None, None
+            xB = Binv.dot(b)
+            N = [j for j in range(self.n_total) if j not in B]
+            cB = c[B]; cN = c[N]
+            lam = cB.dot(Binv)
+            red = cN - lam.dot(A[:, N])
+            logging.debug(f"Iter{it}, xB={xB.tolist()}, red={red.tolist()}, max={maximize}")
+            # condición óptima
+            if maximize:
+                if all(r <= 1e-8 for r in red):
+                    return B, xB
             else:
-                break
-
-        self.B_indices = new_B_indices
-
-        # Eliminar columnas artificiales de A y c
-        keep_cols = [j for j in range(self.n_total) if j not in artificial_set]
-        self.A = self.A[:, keep_cols]
-        self.c = self.c[keep_cols]
-        self.n_total = self.A.shape[1]
-
-        # Ajustar índices base según columnas eliminadas
-        idx_map = {}
-        new_idx = 0
-        for old_idx in range(self.n_total + len(artificial_set)):
-            if old_idx not in artificial_set:
-                idx_map[old_idx] = new_idx
-                new_idx += 1
-
-        self.B_indices = [idx_map[idx] for idx in self.B_indices if idx in idx_map]
-
-    def _phase_two(self):
-        """
-        Fase 2: optimizar función objetivo original sin variables artificiales.
-        """
-        max_iterations = 1000
-        iteration = 0
-
-        A = self.A
-        b = self.b
-        c = self.c
-        B_indices = self.B_indices.copy()
-        N_indices = [j for j in range(self.n_total) if j not in B_indices]
-
-        while iteration < max_iterations:
-            iteration += 1
-
-            B = A[:, B_indices]
-            N = A[:, N_indices]
-
-            try:
-                B_inv = np.linalg.inv(B)
-            except np.linalg.LinAlgError:
-                print("Base singular en fase 2")
-                return None
-
-            x_B = B_inv @ b
-            c_B = c[B_indices]
-            c_N = c[N_indices]
-
-            lambda_ = c_B @ B_inv
-            reduced_costs = c_N - lambda_ @ N
-
-            if all(rc >= -1e-10 for rc in reduced_costs):
-                # Solución óptima encontrada
-                x = np.zeros(self.n_total)
-                for i, idx in enumerate(B_indices):
-                    x[idx] = x_B[i]
-                return x[:self.n]  # sólo variables originales
-
-            entering_candidates = [(idx, rc) for idx, rc in enumerate(reduced_costs) if rc < -1e-10]
-            entering_idx, _ = min(entering_candidates, key=lambda x: x[1])
-            entering_var = N_indices[entering_idx]
-
-            A_j = A[:, entering_var]
-            d = B_inv @ A_j
-
-            ratios = []
-            for i in range(len(d)):
-                if d[i] > 1e-10:
-                    ratios.append(x_B[i] / d[i])
-                else:
-                    ratios.append(np.inf)
-
-            min_ratio = min(ratios)
-            if min_ratio == np.inf:
-                print("Problema no acotado en fase 2")
-                return None
-            leaving_idx = ratios.index(min_ratio)
-            leaving_var = B_indices[leaving_idx]
-
-            B_indices[leaving_idx] = entering_var
-            N_indices[entering_idx] = leaving_var
-
-        print("Máximo de iteraciones alcanzado en fase 2")
-        return None
+                if all(r >= -1e-8 for r in red):
+                    return B, xB
+            # elegir entrante
+            if maximize:
+                ent_rel = [(i, r) for i, r in enumerate(red) if r > 1e-8]
+            else:
+                ent_rel = [(i, r) for i, r in enumerate(red) if r < -1e-8]
+            ent_i, _ = min(ent_rel, key=lambda x: x[1])
+            ent = N[ent_i]
+            d = Binv.dot(A[:, ent])
+            # razón mínima
+            ratios = [xB[i]/d[i] if (maximize and d[i]>1e-8) or (not maximize and d[i]>1e-8) else np.inf for i in range(len(d))]
+            logging.debug(f"Iter{it}, ratios={ratios}")
+            if all(r==np.inf for r in ratios):
+                logging.error("No acotado")
+                return None, None
+            leave_i = ratios.index(min(ratios))
+            B[leave_i] = ent
+        logging.error("Máx iter reached")
+        return None, None
 
     def solve(self):
-        """
-        Ejecuta la fase 1 y fase 2 para resolver el problema.
-        """
-        print("Iniciando fase 1...")
-        feasible = self._phase_one()
-        if not feasible:
-            print("No se encontró solución básica factible.")
+        logging.info("Start phase1")
+        B1, xB1 = self._phase(self.c1, maximize=False)
+        if B1 is None:
+            logging.error("Phase1 failed")
             return None
-
-        print("Removiendo variables artificiales...")
-        self._remove_artificial_vars()
-
-        print("Iniciando fase 2...")
-        solution = self._phase_two()
-        if solution is None:
-            print("No se encontró solución óptima.")
-        else:
-            print("Solución óptima encontrada.")
-        return solution
+        # verificar infactibilidad
+        for i, bi in enumerate(B1):
+            if bi in self.art_idx and xB1[i] > 1e-8:
+                logging.error("Infactible after phase1")
+                return None
+        # remover artificiales
+        B = [bi for bi in B1 if bi < self.n + self.n_slack]
+        keep = list(range(self.n + self.n_slack))
+        self.A = self.A[:, keep]
+        self.c2 = self.c2[:len(keep)]
+        self.n_total = self.A.shape[1]
+        self.B = [keep.index(bi) for bi in B]
+        logging.info(f"After remove art, B={self.B}")
+        # fase2 max
+        logging.info("Start phase2")
+        B2, xB2 = self._phase(self.c2, maximize=True)
+        if B2 is None:
+            logging.error("Phase2 failed")
+            return None
+        x = np.zeros(self.n)
+        for i, bi in enumerate(B2):
+            if bi < self.n:
+                x[bi] = xB2[i]
+        logging.info(f"Solution x={x.tolist()}")
+        return x
