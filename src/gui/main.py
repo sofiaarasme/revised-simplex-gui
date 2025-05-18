@@ -122,6 +122,10 @@ class SimplexGUI(tk.Tk):
         button_frame.pack(pady=20)
         ttk.Button(button_frame, text="Resolver", style='Primary.TButton', command=self._on_solve).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Limpiar", style='Secondary.TButton', command=self._clear_form).pack(side=tk.LEFT, padx=10)
+        
+        # Área de texto para mostrar el contenido del archivo simplex.log
+        self.log_text = tk.Text(container, height=15, wrap=tk.WORD, state=tk.DISABLED, font=('Segoe UI', 12))
+        self.log_text.pack(fill=tk.BOTH, expand=True, pady=10)
 
     def _on_solve(self):
         try:
@@ -139,8 +143,26 @@ class SimplexGUI(tk.Tk):
                 for i, val in enumerate(solution, start=1):
                     res += f"x{i} = {val:.2f}\n"
                 messagebox.showinfo("Resultado", res)
+
+            # Leer y mostrar el contenido del archivo simplex.log
+            self._display_log()
+
         except ValueError as ex:
             messagebox.showerror("Entrada inválida", str(ex))
+            
+    def _display_log(self):
+        """Lee el archivo simplex.log y muestra su contenido en el área de texto."""
+        try:
+            with open("simplex.log", "r") as log_file:
+                log_content = log_file.read()
+
+            # Habilitar el widget de texto, insertar contenido y deshabilitarlo nuevamente
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.delete(1.0, tk.END)  # Limpiar contenido previo
+            self.log_text.insert(tk.END, log_content)
+            self.log_text.config(state=tk.DISABLED)
+        except FileNotFoundError:
+            messagebox.showerror("Error", "El archivo simplex.log no se encontró.")
 
 if __name__ == '__main__':
     app = SimplexGUI()
